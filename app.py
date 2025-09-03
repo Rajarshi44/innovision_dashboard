@@ -544,6 +544,141 @@ if analysis_type == "📊 Overview":
     with col2:
         st.dataframe(source_counts.to_frame("Event Record Count"))
     
+    # Enhanced Student Count Analysis by Department-Section
+    st.subheader("👥 Student Participation Analysis by Department & Section")
+    
+    # Check if required columns exist
+    if 'department' in df.columns and 'section' in df.columns and 'student_count' in df.columns:
+        
+        # Clean and standardize the data
+        df_clean = df.copy()
+        df_clean['department'] = df_clean['department'].astype(str).str.strip().str.upper()
+        df_clean['section'] = df_clean['section'].astype(str).str.strip().str.upper()
+        
+        # Create department-section combination
+        df_clean['dept_section'] = df_clean['department'] + ' - ' + df_clean['section']
+        
+        # Department-wise section analysis
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### 📊 Average Student Participation by Department-Section")
+            dept_section_avg = df_clean.groupby('dept_section')['student_count'].mean().sort_values(ascending=False)
+            
+            # Create bar chart for average participation
+            fig_avg = px.bar(
+                x=dept_section_avg.index, 
+                y=dept_section_avg.values,
+                title="Average Student Participation per Event",
+                labels={'x': 'Department - Section', 'y': 'Avg Students per Event'},
+                color=dept_section_avg.values,
+                color_continuous_scale='blues'
+            )
+            fig_avg.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_avg, use_container_width=True)
+            
+            # Show top 10 table
+            st.dataframe(dept_section_avg.head(10).round(2).to_frame("Avg Students per Event").reset_index())
+        
+        with col2:
+            st.markdown("#### 📈 Event Participation Count by Department-Section")
+            dept_section_events = df_clean.groupby('dept_section').size().sort_values(ascending=False)
+            
+            # Create bar chart for event counts
+            fig_events = px.bar(
+                x=dept_section_events.index, 
+                y=dept_section_events.values,
+                title="Number of Events Participated",
+                labels={'x': 'Department - Section', 'y': 'Number of Events'},
+                color=dept_section_events.values,
+                color_continuous_scale='oranges'
+            )
+            fig_events.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_events, use_container_width=True)
+            
+            # Show top 10 table
+            st.dataframe(dept_section_events.head(10).to_frame("Events Participated").reset_index())
+        
+        # Department-wise summary
+        st.markdown("#### 🏢 Department-wise Summary")
+        dept_summary = df_clean.groupby('department').agg({
+            'student_count': ['mean', 'max', 'min'],
+            'dept_section': 'count',
+            'section': 'nunique'
+        }).round(2)
+        dept_summary.columns = ['Avg Students per Event', 'Max Students in Event', 'Min Students in Event', 'Total Event Participations', 'Unique Sections']
+        dept_summary = dept_summary.sort_values('Total Event Participations', ascending=False)
+        
+        # Display with enhanced metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                <h4 style="margin: 0; color: white;">🏢 Total Departments</h4>
+                <h2 style="margin: 0; color: white;">{df_clean['department'].nunique()}</h2>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                <h4 style="margin: 0; color: white;">📚 Total Sections</h4>
+                <h2 style="margin: 0; color: white;">{df_clean['section'].nunique()}</h2>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                <h4 style="margin: 0; color: white;">🎯 Total Event Records</h4>
+                <h2 style="margin: 0; color: white;">{len(df_clean):,}</h2>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.dataframe(dept_summary)
+        
+        # Analysis interpretation
+        st.markdown("#### � How to Interpret This Data")
+        st.info("""
+        **Important Note:** Each row in the data represents a department-section's participation in a specific event.
+        
+        - **Average Student Participation:** Average number of students from each dept-section per event
+        - **Event Participation Count:** How many events each dept-section participated in
+        - **Not Total Students:** We're measuring event participation, not unique student counts
+        
+        For example: If CSE-A shows 15 events and 5 avg students, it means CSE-A section participated in 15 different events with an average of 5 students per event.
+        """)
+        
+        # Section distribution within departments
+        st.markdown("#### 🗂️ Section Participation by Department")
+        for dept in sorted(df_clean['department'].unique()):
+            dept_data = df_clean[df_clean['department'] == dept]
+            section_stats = dept_data.groupby('section').agg({
+                'student_count': ['mean', 'count', 'sum'],
+                'event_name': 'nunique'
+            }).round(2)
+            section_stats.columns = ['Avg Students per Event', 'Event Participations', 'Total Student-Event Count', 'Unique Events']
+            
+            with st.expander(f"📂 {dept} Department Sections ({dept_data['section'].nunique()} sections)"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    # Create pie chart for this department's event participation
+                    fig_dept = px.pie(
+                        values=section_stats['Event Participations'], 
+                        names=section_stats.index,
+                        title=f"Event Participation Distribution in {dept}"
+                    )
+                    st.plotly_chart(fig_dept, use_container_width=True)
+                
+                with col2:
+                    st.dataframe(section_stats.sort_values('Event Participations', ascending=False))
+        
+        # Update the main dataframe for other sections
+        df['dept_section'] = df_clean['dept_section']
+    
+    else:
+        st.warning("⚠️ Department, section, or student_count columns not found for detailed analysis.")
+    
     # Sample event data
     st.subheader("🔍 Sample Event Data")
     st.dataframe(df.head(10))
@@ -758,15 +893,28 @@ elif analysis_type == "📈 Visualizations":
         "📊 Histograms", "🎯 Violin Plots", "📈 3D Scatter Plots"
     ])
     
-    # Variable selection
+    # Enhanced variable selection with department-section combinations
+    if 'department' in df.columns and 'section' in df.columns:
+        # Clean and standardize department and section data
+        df['department_clean'] = df['department'].astype(str).str.strip().str.upper()
+        df['section_clean'] = df['section'].astype(str).str.strip().str.upper()
+        df['dept_section'] = df['department_clean'] + ' - ' + df['section_clean']
+        
+        # Update categorical columns to include cleaned versions
+        categorical_cols = [col for col in categorical_cols if col not in ['department', 'section']] + ['department_clean', 'section_clean', 'dept_section']
+    
     col1, col2 = st.columns(2)
     with col1:
         x_var = st.selectbox("🔸 X Variable", ['source'] + numeric_cols + categorical_cols)
     with col2:
         y_var = st.selectbox("🔹 Y Variable", numeric_cols)
     
-    # Color coding
-    color_var = st.selectbox("🎨 Color By", [None, 'source'] + categorical_cols + numeric_cols)
+    # Enhanced color coding with department-section options
+    color_options = [None, 'source'] + categorical_cols + numeric_cols
+    if 'dept_section' in df.columns:
+        color_options = [None, 'source', 'department_clean', 'section_clean', 'dept_section'] + [col for col in categorical_cols + numeric_cols if col not in ['department_clean', 'section_clean', 'dept_section']]
+    
+    color_var = st.selectbox("🎨 Color By", color_options)
     
     # Aggregation method selection
     if chart_type == "📊 Interactive Bar Charts":
