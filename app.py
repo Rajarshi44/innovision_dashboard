@@ -441,8 +441,7 @@ df, numeric_cols, categorical_cols, date_cols = preprocess_data(df)
 st.sidebar.title("🎛️ Event Analytics Navigation")
 analysis_type = st.sidebar.selectbox(
     "Choose Analysis Type",
-    ["📊 Overview", "🎯 Data Accuracy", "📈 Visualizations", "🔍 Data Comparison", "📋 Statistical Analysis", 
-     "🎯 Clustering Analysis", "📊 Correlation Analysis", "📉 Time Series Analysis", "🔧 Data Tools"]
+    ["📊 Overview", "📈 Visualizations"]
 )
 
 # --- Main Title ---
@@ -462,7 +461,7 @@ if analysis_type == "📊 Overview":
     accuracy_report = validate_data_accuracy(df)
     
     # Data Quality Score prominently displayed
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; margin-bottom: 1rem;">
@@ -485,13 +484,6 @@ if analysis_type == "📊 Overview":
         </div>
         """, unsafe_allow_html=True)
     with col4:
-        st.markdown(f"""
-        <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); color: white; padding: 1.5rem; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; margin-bottom: 1rem;">
-            <h3 style="margin: 0; font-size: 0.9rem; font-weight: 500; opacity: 0.9; margin-bottom: 0.5rem; color: white;">📅 Date Columns</h3>
-            <h2 style="margin: 0; font-size: 2rem; font-weight: 700; color: white;">{len(date_cols)}</h2>
-        </div>
-        """, unsafe_allow_html=True)
-    with col5:
         # Color code the quality score
         if accuracy_report['data_quality_score'] >= 80:
             quality_color = "linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%)"  # Green
@@ -555,22 +547,44 @@ if analysis_type == "📊 Overview":
         df_clean['department'] = df_clean['department'].astype(str).str.strip().str.upper()
         df_clean['section'] = df_clean['section'].astype(str).str.strip().str.upper()
         
-        # Create department-section combination
-        df_clean['dept_section'] = df_clean['department'] + ' - ' + df_clean['section']
+        # Extract year from date columns if available
+        year_col = None
+        for col in df_clean.columns:
+            if 'year' in col.lower():
+                year_col = col
+                break
+        
+        # If no year column found, try to extract from date columns
+        if year_col is None:
+            for col in date_cols:
+                if col in df_clean.columns:
+                    df_clean['year'] = pd.to_datetime(df_clean[col], errors='coerce').dt.year
+                    year_col = 'year'
+                    break
+        
+        # Create department-section-year combination
+        if year_col and year_col in df_clean.columns:
+            df_clean['dept_section_year'] = df_clean['department'] + ' - ' + df_clean['section'] + ' - ' + df_clean[year_col].astype(str)
+            group_by_col = 'dept_section_year'
+            title_suffix = " by Department-Section-Year"
+        else:
+            df_clean['dept_section'] = df_clean['department'] + ' - ' + df_clean['section']
+            group_by_col = 'dept_section'
+            title_suffix = " by Department-Section"
         
         # Department-wise section analysis
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("#### 📊 Average Student Participation by Department-Section")
-            dept_section_avg = df_clean.groupby('dept_section')['student_count'].mean().sort_values(ascending=False)
+            st.markdown(f"#### 📊 Average Student Participation{title_suffix}")
+            dept_section_avg = df_clean.groupby(group_by_col)['student_count'].mean().sort_values(ascending=False)
             
             # Create bar chart for average participation
             fig_avg = px.bar(
                 x=dept_section_avg.index, 
                 y=dept_section_avg.values,
-                title="Average Student Participation per Event",
-                labels={'x': 'Department - Section', 'y': 'Avg Students per Event'},
+                title=f"Average Student Participation per Event{title_suffix}",
+                labels={'x': group_by_col.replace('_', ' ').title(), 'y': 'Avg Students per Event'},
                 color=dept_section_avg.values,
                 color_continuous_scale='blues'
             )
@@ -581,15 +595,15 @@ if analysis_type == "📊 Overview":
             st.dataframe(dept_section_avg.head(10).round(2).to_frame("Avg Students per Event").reset_index())
         
         with col2:
-            st.markdown("#### 📈 Event Participation Count by Department-Section")
-            dept_section_events = df_clean.groupby('dept_section').size().sort_values(ascending=False)
+            st.markdown(f"#### 📈 Event Participation Count{title_suffix}")
+            dept_section_events = df_clean.groupby(group_by_col).size().sort_values(ascending=False)
             
             # Create bar chart for event counts
             fig_events = px.bar(
                 x=dept_section_events.index, 
                 y=dept_section_events.values,
-                title="Number of Events Participated",
-                labels={'x': 'Department - Section', 'y': 'Number of Events'},
+                title=f"Number of Events Participated{title_suffix}",
+                labels={'x': group_by_col.replace('_', ' ').title(), 'y': 'Number of Events'},
                 color=dept_section_events.values,
                 color_continuous_scale='oranges'
             )
@@ -603,7 +617,7 @@ if analysis_type == "📊 Overview":
         st.markdown("#### 🏢 Department-wise Summary")
         dept_summary = df_clean.groupby('department').agg({
             'student_count': ['mean', 'max', 'min'],
-            'dept_section': 'count',
+            group_by_col: 'count',
             'section': 'nunique'
         }).round(2)
         dept_summary.columns = ['Avg Students per Event', 'Max Students in Event', 'Min Students in Event', 'Total Event Participations', 'Unique Sections']
@@ -653,13 +667,24 @@ if analysis_type == "📊 Overview":
         st.markdown("#### 🗂️ Section Participation by Department")
         for dept in sorted(df_clean['department'].unique()):
             dept_data = df_clean[df_clean['department'] == dept]
-            section_stats = dept_data.groupby('section').agg({
+            
+            # Create section_year if year data exists
+            if year_col and year_col in dept_data.columns:
+                dept_data['section_year'] = dept_data['section'] + ' - ' + dept_data[year_col].astype(str)
+                section_group_col = 'section_year'
+                section_label = 'Section-Year'
+            else:
+                section_group_col = 'section'
+                section_label = 'Section'
+            
+            section_stats = dept_data.groupby(section_group_col).agg({
                 'student_count': ['mean', 'count', 'sum'],
                 'event_name': 'nunique'
             }).round(2)
             section_stats.columns = ['Avg Students per Event', 'Event Participations', 'Total Student-Event Count', 'Unique Events']
             
-            with st.expander(f"📂 {dept} Department Sections ({dept_data['section'].nunique()} sections)"):
+            section_count = dept_data[section_group_col].nunique()
+            with st.expander(f"📂 {dept} Department {section_label}s ({section_count} {section_label.lower()}s)"):
                 col1, col2 = st.columns(2)
                 with col1:
                     # Create pie chart for this department's event participation
@@ -674,25 +699,13 @@ if analysis_type == "📊 Overview":
                     st.dataframe(section_stats.sort_values('Event Participations', ascending=False))
         
         # Update the main dataframe for other sections
-        df['dept_section'] = df_clean['dept_section']
+        if 'dept_section' in df_clean.columns:
+            df['dept_section'] = df_clean['dept_section']
+        if 'dept_section_year' in df_clean.columns:
+            df['dept_section_year'] = df_clean['dept_section_year']
     
     else:
         st.warning("⚠️ Department, section, or student_count columns not found for detailed analysis.")
-    
-    # Sample event data
-    st.subheader("🔍 Sample Event Data")
-    st.dataframe(df.head(10))
-    
-    # Column information
-    st.subheader("📋 Column Information")
-    col_info = pd.DataFrame({
-        'Column': df.columns,
-        'Data Type': df.dtypes.astype(str),  # Convert to string to avoid Arrow issues
-        'Non-Null Count': df.count(),
-        'Null Count': df.isnull().sum(),
-        'Unique Values': df.nunique()
-    })
-    st.dataframe(col_info)
 
 # --- DATA ACCURACY SECTION ---
 elif analysis_type == "🎯 Data Accuracy":
@@ -888,9 +901,8 @@ elif analysis_type == "📈 Visualizations":
     
     # Chart type selection
     chart_type = st.selectbox("🎨 Select Chart Type", [
-        "📊 Interactive Bar Charts", "📈 Line Charts", "📉 Area Charts", 
-        "🎯 Scatter Plots", "📦 Box Plots", "🌡️ Heatmaps", 
-        "📊 Histograms", "🎯 Violin Plots", "📈 3D Scatter Plots"
+        "📊 Interactive Bar Charts", "🎯 Scatter Plots", "📦 Box Plots", 
+        "🌡️ Heatmaps", "📊 Histograms", "🎯 Violin Plots", "📈 3D Scatter Plots"
     ])
     
     # Enhanced variable selection with department-section combinations
@@ -900,8 +912,27 @@ elif analysis_type == "📈 Visualizations":
         df['section_clean'] = df['section'].astype(str).str.strip().str.upper()
         df['dept_section'] = df['department_clean'] + ' - ' + df['section_clean']
         
-        # Update categorical columns to include cleaned versions
-        categorical_cols = [col for col in categorical_cols if col not in ['department', 'section']] + ['department_clean', 'section_clean', 'dept_section']
+        # Extract year if available
+        year_col = None
+        for col in df.columns:
+            if 'year' in col.lower():
+                year_col = col
+                break
+        
+        # If no year column found, try to extract from date columns
+        if year_col is None:
+            for col in date_cols:
+                if col in df.columns:
+                    df['year'] = pd.to_datetime(df[col], errors='coerce').dt.year
+                    year_col = 'year'
+                    break
+        
+        # Create department-section-year combination
+        if year_col and year_col in df.columns:
+            df['dept_section_year'] = df['department_clean'] + ' - ' + df['section_clean'] + ' - ' + df[year_col].astype(str)
+            categorical_cols = [col for col in categorical_cols if col not in ['department', 'section']] + ['department_clean', 'section_clean', 'dept_section', 'dept_section_year']
+        else:
+            categorical_cols = [col for col in categorical_cols if col not in ['department', 'section']] + ['department_clean', 'section_clean', 'dept_section']
     
     col1, col2 = st.columns(2)
     with col1:
@@ -909,9 +940,11 @@ elif analysis_type == "📈 Visualizations":
     with col2:
         y_var = st.selectbox("🔹 Y Variable", numeric_cols)
     
-    # Enhanced color coding with department-section options
+    # Enhanced color coding with department-section-year options
     color_options = [None, 'source'] + categorical_cols + numeric_cols
-    if 'dept_section' in df.columns:
+    if 'dept_section_year' in df.columns:
+        color_options = [None, 'source', 'department_clean', 'section_clean', 'dept_section', 'dept_section_year'] + [col for col in categorical_cols + numeric_cols if col not in ['department_clean', 'section_clean', 'dept_section', 'dept_section_year']]
+    elif 'dept_section' in df.columns:
         color_options = [None, 'source', 'department_clean', 'section_clean', 'dept_section'] + [col for col in categorical_cols + numeric_cols if col not in ['department_clean', 'section_clean', 'dept_section']]
     
     color_var = st.selectbox("🎨 Color By", color_options)
@@ -1048,42 +1081,73 @@ elif analysis_type == "📈 Visualizations":
                 )
     
     elif chart_type == "📈 Line Charts":
-        if date_cols:
+        if date_cols and len(date_cols) > 0:
             date_col = st.selectbox("📅 Date Column", date_cols)
-            time_agg = st.selectbox("⏰ Time Aggregation", ["D", "W", "M", "Q", "Y"])
+            time_agg = st.selectbox("⏰ Time Aggregation", ["D", "W", "M", "Q", "Y"],
+                                   format_func=lambda x: {"D": "Daily", "W": "Weekly", "M": "Monthly", "Q": "Quarterly", "Y": "Yearly"}[x])
             
-            df_clean = df.dropna(subset=[date_col, y_var])
-            df_clean = df_clean.set_index(date_col)
-            
-            if color_var and color_var in df.columns:
-                fig = go.Figure()
-                for group_val in df[color_var].unique():
-                    group_data = df_clean[df_clean[color_var] == group_val]
-                    resampled = group_data[y_var].resample(time_agg).mean()
-                    fig.add_trace(go.Scatter(x=resampled.index, y=resampled.values,
-                                           mode='lines+markers', name=str(group_val)))
-            else:
-                resampled = df_clean[y_var].resample(time_agg).mean()
-                fig = px.line(x=resampled.index, y=resampled.values,
-                             title=f"{y_var} Trend Over Time")
-            
-            fig.update_layout(title=f"{y_var} Trend Over Time ({time_agg})")
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                df_clean = df.dropna(subset=[date_col, y_var]).copy()
+                df_clean[date_col] = pd.to_datetime(df_clean[date_col], errors='coerce')
+                df_clean = df_clean.dropna(subset=[date_col])
+                
+                if len(df_clean) > 0:
+                    df_clean = df_clean.set_index(date_col)
+                    
+                    if color_var and color_var in df_clean.columns:
+                        fig = go.Figure()
+                        for group_val in df_clean[color_var].unique():
+                            group_data = df_clean[df_clean[color_var] == group_val]
+                            if len(group_data) > 0:
+                                resampled = group_data[y_var].resample(time_agg).mean()
+                                fig.add_trace(go.Scatter(x=resampled.index, y=resampled.values,
+                                                       mode='lines+markers', name=str(group_val)))
+                        fig.update_layout(title=f"{y_var} Trend Over Time ({time_agg})",
+                                        xaxis_title="Date", yaxis_title=y_var)
+                    else:
+                        resampled = df_clean[y_var].resample(time_agg).mean()
+                        fig = px.line(x=resampled.index, y=resampled.values,
+                                     title=f"{y_var} Trend Over Time ({time_agg})")
+                        fig.update_layout(xaxis_title="Date", yaxis_title=y_var)
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("⚠️ No valid date data available after cleaning.")
+            except Exception as e:
+                st.error(f"❌ Error creating line chart: {str(e)}")
+                st.info("💡 Try selecting a different date column or check your date format.")
         else:
-            st.warning("⚠️ No date columns available for time series.")
+            st.warning("⚠️ No date columns available for time series. Line charts require date/time data.")
     
     elif chart_type == "📉 Area Charts":
-        if date_cols:
+        if date_cols and len(date_cols) > 0:
             date_col = st.selectbox("📅 Date Column", date_cols)
-            df_clean = df.dropna(subset=[date_col, y_var]).set_index(date_col)
-            resampled = df_clean.groupby('source')[y_var].resample('D').sum().unstack(0).fillna(0)
+            time_agg = st.selectbox("⏰ Time Aggregation", ["D", "W", "M"],
+                                   format_func=lambda x: {"D": "Daily", "W": "Weekly", "M": "Monthly"}[x])
             
-            fig = go.Figure()
-            for col in resampled.columns:
-                fig.add_trace(go.Scatter(x=resampled.index, y=resampled[col],
-                                       mode='lines', stackgroup='one', name=col))
-            fig.update_layout(title=f"Stacked Area Chart: {y_var} Over Time")
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                df_clean = df.dropna(subset=[date_col, y_var]).copy()
+                df_clean[date_col] = pd.to_datetime(df_clean[date_col], errors='coerce')
+                df_clean = df_clean.dropna(subset=[date_col])
+                
+                if len(df_clean) > 0 and 'source' in df_clean.columns:
+                    df_clean = df_clean.set_index(date_col)
+                    resampled = df_clean.groupby('source')[y_var].resample(time_agg).sum().unstack(0).fillna(0)
+                    
+                    fig = go.Figure()
+                    for col in resampled.columns:
+                        fig.add_trace(go.Scatter(x=resampled.index, y=resampled[col],
+                                               mode='lines', stackgroup='one', name=col))
+                    fig.update_layout(title=f"Stacked Area Chart: {y_var} Over Time ({time_agg})",
+                                    xaxis_title="Date", yaxis_title=y_var)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("⚠️ No valid date data available after cleaning.")
+            except Exception as e:
+                st.error(f"❌ Error creating area chart: {str(e)}")
+                st.info("💡 Try selecting a different date column or check your date format.")
+        else:
+            st.warning("⚠️ No date columns available for time series. Area charts require date/time data.")
     
     elif chart_type == "🎯 Scatter Plots":
         if len(numeric_cols) >= 2:
